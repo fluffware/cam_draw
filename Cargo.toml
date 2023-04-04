@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 paths = {path="../stepper_control/paths"}
 clap = {version = "4.0", features = ["derive"] }
+byteorder="1.4"

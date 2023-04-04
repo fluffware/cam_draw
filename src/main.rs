@@ -1,12 +1,13 @@
+use byteorder::{LittleEndian as LE, WriteBytesExt};
 use clap::Parser;
-use paths::coords::{Point, Transform};
+use paths::coords::{Point, Transform, Vector};
 use paths::curve_approx::CurveInfo;
 use paths::curves;
 use paths::stepper_context::CurveSegment;
 use paths::svg_parser;
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 fn curve_segment_to_info(
@@ -82,6 +83,9 @@ struct CmdArgs {
     /// LDraw output file
     #[arg(long, short = 'l')]
     ldraw_output: Option<PathBuf>,
+    /// STL output file
+    #[arg(long, short = 's')]
+    stl_output: Option<PathBuf>,
     /// Output SVG template for curve
     #[arg(long)]
     svg_template: Option<PathBuf>,
@@ -176,6 +180,101 @@ fn write_ldraw_file(
             prev = p.clone();
         }
     }
+    Ok(())
+}
+
+fn write_stl_xy_z<W: Write>(
+    out: &mut W,
+    xy: &Vector,
+    z: f64,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    out.write_f32::<LE>(xy.x as f32)?;
+    out.write_f32::<LE>(xy.y as f32)?;
+    out.write_f32::<LE>(z as f32)?;
+    Ok(())
+}
+
+fn write_stl_triangle<W: Write>(
+    out: &mut W,
+    normal: &(Vector, f64),
+    vertices: &[(Vector, f64); 3],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    write_stl_xy_z(out, &normal.0, normal.1)?;
+    for (xy, z) in vertices {
+        write_stl_xy_z(out, xy, *z)?;
+    }
+    out.write_u16::<LE>(0)?;
+    Ok(())
+}
+
+fn write_stl_quad<W: Write>(
+    out: &mut W,
+    normal: &(Vector, f64),
+    vertices: &[(Vector, f64); 4],
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    write_stl_triangle(out, normal, &[vertices[0], vertices[1], vertices[2]])?;
+    write_stl_triangle(out, normal, &[vertices[2], vertices[3], vertices[0]])
+}
+fn write_stl_file(
+    path: &Vec<Point>,
+    filename: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    let mut out = create_output_file(filename)?;
+    let lower = 0.0;
+    let upper = 8.0;
+    let radius = 6.0;
+    let header = [0u8; 80];
+    out.write(&header)?;
+    out.write_u32::<LE>((path.len() * (2*2)) as u32)?;
+
+    if let Some(mut prev) = &path.last().cloned() {
+        for p in path {
+            let c = *p * (radius / p.length());
+            let prev_c = prev * (radius / prev.length());
+            write_stl_quad(
+                &mut out,
+                &(p.clone(), 0.0),
+                &[
+                    (prev.clone(), lower),
+                    (p.clone(), lower),
+                    (p.clone(), upper),
+                    (prev.clone(), upper),
+                ],
+            )?;
+            write_stl_quad(
+                &mut out,
+                &(Vector { x: 0.0, y: 0.0 }, 1.0),
+                &[
+                    (p.clone(), upper),
+                    (c.clone(), upper),
+                    (prev_c.clone(), upper),
+                    (prev.clone(), upper),
+                ],
+            )?;
+            /*
+            write_stl_quad(
+                &mut out,
+                &(Vector { x: 0.0, y: 0.0 }, -1.0),
+                &[
+                    (prev_c.clone(), lower),
+                    (prev.clone(), lower),
+                    (p.clone(), lower),
+                    (c.clone(), lower),
+                ],
+            )?;
+                    writeln!(
+                        &mut out,
+                        "4 16 {} {} {} {}",
+                        LdrawCoord::xy_z(&prev_c, upper),
+                        LdrawCoord::xy_z(&prev_c, lower),
+                        LdrawCoord::xy_z(&c, lower),
+                        LdrawCoord::xy_z(&c, upper),
+                    )?;
+            */
+            prev = p.clone();
+        }
+    }
+
     Ok(())
 }
 
@@ -309,6 +408,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
     } else if let Some(ldraw_filename) = &args.ldraw_output {
         write_ldraw_file(&path1, &add_file_suffix(ldraw_filename, "_1")?)?;
         write_ldraw_file(&path2, &add_file_suffix(ldraw_filename, "_2")?)?;
+    } else if let Some(stl_filename) = &args.stl_output {
+        write_stl_file(&path1, &add_file_suffix(stl_filename, "_1")?)?;
+        write_stl_file(&path2, &add_file_suffix(stl_filename, "_2")?)?;
     }
     Ok(())
 }
