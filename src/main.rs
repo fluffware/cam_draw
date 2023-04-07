@@ -10,6 +10,58 @@ use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+/*
+   __
+  /  \
+ |    |
+_/    \_
+ */
+
+const AXLE_BEVEL: f64 = 0.5;
+const AXLE_INNER: f64 = 1.0;
+const AXLE_OUTER: f64 = 2.5;
+const AXLE_WIDTH: f64 = 2.0;
+
+const AXLE_INNER_STRAIGHT: f64 = AXLE_INNER + AXLE_BEVEL;
+const AXLE_OUTER_STRAIGHT: f64 = AXLE_OUTER - AXLE_BEVEL;
+const AXLE_TOP_STRAIGHT: f64 = AXLE_WIDTH - AXLE_BEVEL;
+
+const AXLE_CROSS: [Point; 8] = [
+    Point {
+        x: -AXLE_TOP_STRAIGHT,
+        y: AXLE_OUTER,
+    },
+    Point {
+        x: AXLE_TOP_STRAIGHT,
+        y: AXLE_OUTER,
+    },
+    Point {
+        x: AXLE_WIDTH,
+        y: AXLE_OUTER_STRAIGHT,
+    },
+    Point {
+        x: AXLE_WIDTH,
+        y: AXLE_INNER_STRAIGHT,
+    },
+    Point {
+        x: AXLE_INNER_STRAIGHT,
+        y: AXLE_WIDTH,
+    },
+    Point {
+        x: AXLE_OUTER_STRAIGHT,
+        y: AXLE_WIDTH,
+    },
+    Point {
+        x: AXLE_OUTER,
+        y: AXLE_TOP_STRAIGHT,
+    },
+    Point {
+        x: AXLE_OUTER,
+        y: -AXLE_TOP_STRAIGHT,
+    },
+];
+
+
 fn curve_segment_to_info(
     seg: &CurveSegment,
     current_pos: &mut Point,
@@ -225,7 +277,7 @@ fn write_stl_file(
     let radius = 6.0;
     let header = [0u8; 80];
     out.write(&header)?;
-    out.write_u32::<LE>((path.len() * (2*2)) as u32)?;
+    out.write_u32::<LE>((path.len() * (2 * 2)) as u32)?;
 
     if let Some(mut prev) = &path.last().cloned() {
         for p in path {
