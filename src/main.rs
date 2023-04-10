@@ -17,10 +17,10 @@ use std::path::{Path, PathBuf};
 _/    \_
  */
 
-const AXLE_BEVEL: f64 = 0.5;
-const AXLE_INNER: f64 = 1.0;
+const AXLE_BEVEL: f64 = 0.3;
+const AXLE_INNER: f64 = 1.1;
 const AXLE_OUTER: f64 = 2.5;
-const AXLE_WIDTH: f64 = 2.0;
+const AXLE_WIDTH: f64 = 1.8 / 2.0;
 
 const AXLE_INNER_STRAIGHT: f64 = AXLE_INNER + AXLE_BEVEL;
 const AXLE_OUTER_STRAIGHT: f64 = AXLE_OUTER - AXLE_BEVEL;
@@ -61,6 +61,39 @@ const AXLE_CROSS: [Point; 8] = [
     },
 ];
 
+fn center_intersection(curve: &[Point], mut p: Point) -> Point {
+    // Rotate p to first quadrant
+    let rot180 = p.x < 0.0;
+    if rot180 {
+        p = -p;
+    }
+    let rot90 = p.y < 0.0;
+    if rot90 {
+        p = p.rotate_90_ccw();
+    }
+
+    let mut prev_point = &curve[0];
+    let mut prev_sign = curve[0].diff_sign(&p);
+
+    for cp in curve {
+        let sign = cp.diff_sign(&p);
+        if sign * prev_sign <= 0.0 {
+            let a = prev_point.x * cp.y - prev_point.y * cp.x;
+            let b = *prev_point - *cp;
+            let mut cross = p * (a / (b.x * p.y - b.y * p.x));
+            if rot90 {
+                cross = cross.rotate_90_cw();
+            }
+            if rot180 {
+                cross = -cross;
+            }
+            return cross;
+        }
+        prev_sign = sign;
+        prev_point = cp;
+    }
+    panic!("No lines intersect");
+}
 
 fn curve_segment_to_info(
     seg: &CurveSegment,
@@ -194,7 +227,7 @@ fn write_ldraw_file(
     if let Some(mut prev) = &path.last().map(|p| (*p * scale).clone()) {
         for p in path {
             let p = &(*p * scale);
-            let c = *p * (radius / p.length());
+            let c = center_intersection(&AXLE_CROSS, *p);
             let prev_c = prev * (radius / prev.length());
             writeln!(
                 &mut out,
@@ -274,15 +307,15 @@ fn write_stl_file(
     let mut out = create_output_file(filename)?;
     let lower = 0.0;
     let upper = 8.0;
-    let radius = 6.0;
+    let radius = 2.4;
     let header = [0u8; 80];
     out.write(&header)?;
-    out.write_u32::<LE>((path.len() * (2 * 2)) as u32)?;
+    out.write_u32::<LE>((path.len() * (2 * 4)) as u32)?;
 
     if let Some(mut prev) = &path.last().cloned() {
         for p in path {
-            let c = *p * (radius / p.length());
-            let prev_c = prev * (radius / prev.length());
+            let c = center_intersection(&AXLE_CROSS, *p);
+            let prev_c = center_intersection(&AXLE_CROSS, prev);
             write_stl_quad(
                 &mut out,
                 &(p.clone(), 0.0),
@@ -303,26 +336,28 @@ fn write_stl_file(
                     (prev.clone(), upper),
                 ],
             )?;
-            /*
+
             write_stl_quad(
                 &mut out,
                 &(Vector { x: 0.0, y: 0.0 }, -1.0),
                 &[
-                    (prev_c.clone(), lower),
                     (prev.clone(), lower),
-                    (p.clone(), lower),
+                    (prev_c.clone(), lower),
                     (c.clone(), lower),
+                    (p.clone(), lower),
                 ],
             )?;
-                    writeln!(
-                        &mut out,
-                        "4 16 {} {} {} {}",
-                        LdrawCoord::xy_z(&prev_c, upper),
-                        LdrawCoord::xy_z(&prev_c, lower),
-                        LdrawCoord::xy_z(&c, lower),
-                        LdrawCoord::xy_z(&c, upper),
-                    )?;
-            */
+            write_stl_quad(
+                &mut out,
+                &(-p.clone(), 0.0),
+                &[
+                    (c.clone(), upper),
+                    (c.clone(), lower),
+                    (prev_c.clone(), lower),
+                    (prev_c.clone(), upper),
+                ],
+            )?;
+
             prev = p.clone();
         }
     }
@@ -465,4 +500,15 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
         write_stl_file(&path2, &add_file_suffix(stl_filename, "_2")?)?;
     }
     Ok(())
+}
+
+#[test]
+fn test_center_intersection() {
+    assert_eq!(
+        center_intersection(
+            &[Point { x: 3.0, y: 3.0 }, Point { x: 3.0, y: -3.0 }],
+            Point { x: 4.0, y: 0.0 }
+        ),
+        Point { x: 3.0, y: 0.0 }
+    );
 }
