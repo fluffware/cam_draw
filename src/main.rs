@@ -227,8 +227,8 @@ fn write_ldraw_file(
     if let Some(mut prev) = &path.last().map(|p| (*p * scale).clone()) {
         for p in path {
             let p = &(*p * scale);
-            let c = center_intersection(&AXLE_CROSS, *p);
-            let prev_c = prev * (radius / prev.length());
+            let c = center_intersection(&AXLE_CROSS, *p) * scale;
+            let prev_c = center_intersection(&AXLE_CROSS, prev) * scale;
             writeln!(
                 &mut out,
                 "4 16 {} {} {} {}",
